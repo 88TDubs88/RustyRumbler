@@ -73,14 +73,14 @@
   <div id="adminModal" class="modal hidden">
     <div class="modal-card">
       <h3>Rusty Control Access</h3>
-      <p>Type the admin code to unlock Rusty’s control panel.</p>
+      <p>Enter the admin code to unlock Rusty’s control panel.</p>
       <input id="adminCodeInput" class="code-input" type="password" placeholder="Enter admin code" />
       <div class="modal-actions">
         <button id="adminUnlockBtn" class="btn btn-main">Unlock</button>
         <button id="adminCancelBtn" class="btn btn-secondary">Cancel</button>
       </div>
       <div id="adminError" class="error"></div>
-      <div class="session-note">Tip: type <strong>rusty</strong> anywhere on the page to open this.</div>
+      <div class="session-note"></div>
     </div>
   </div>
 
@@ -92,7 +92,7 @@
       <div class="host-card">
         <div class="host-label">Rusty Arena Host</div>
         <img id="rustyHost" src="Rusty.png" alt="Rusty" class="rusty-host" />
-        <div id="hostTip" class="host-tip">Type “rusty” on your keyboard to open the control seal.</div>
+        <div id="hostTip" class="host-tip"></div>
       </div>
     </section>
 
@@ -196,9 +196,58 @@
     function clearStoredCode(){ sessionStorage.removeItem("rustyAdminCode"); sessionStorage.removeItem("rustyAdminUnlocked"); }
     function isAdminUnlocked(){ return sessionStorage.getItem("rustyAdminUnlocked")==="yes" && !!getStoredCode(); }
 
+    function getUnlockState() {
+      try {
+        return JSON.parse(sessionStorage.getItem("rustyUnlockState") || '{"fails":0,"blockedUntil":0}');
+      } catch {
+        return { fails: 0, blockedUntil: 0 };
+      }
+    }
+
+    function setUnlockState(state) {
+      sessionStorage.setItem("rustyUnlockState", JSON.stringify(state));
+    }
+
+    function resetUnlockState() {
+      setUnlockState({ fails: 0, blockedUntil: 0 });
+    }
+
+    function registerFailedUnlock() {
+      const state = getUnlockState();
+      state.fails += 1;
+
+      if (state.fails >= 5) {
+        state.blockedUntil = Date.now() + 30000;
+      } else if (state.fails >= 3) {
+        state.blockedUntil = Date.now() + 10000;
+      }
+
+      setUnlockState(state);
+      return state;
+    }
+
+    function getRemainingBlockSeconds() {
+      const state = getUnlockState();
+      const remainingMs = state.blockedUntil - Date.now();
+      return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0;
+    }
+
     function showAdminPanel(){ ui.adminPanel.classList.remove("hidden"); ui.hostTip.textContent = "Rusty grants access to the control deck."; }
-    function hideAdminPanel(){ ui.adminPanel.classList.add("hidden"); ui.hostTip.textContent = "Type “rusty” on your keyboard to open the control seal."; }
-    function openAdminModal(){ ui.adminModal.classList.remove("hidden"); ui.adminCodeInput.value = ""; ui.adminError.textContent = ""; ui.adminCodeInput.focus(); }
+    function hideAdminPanel(){ ui.adminPanel.classList.add("hidden"); ui.hostTip.textContent = ""; }
+
+    function openAdminModal(){
+      const remaining = getRemainingBlockSeconds();
+      ui.adminModal.classList.remove("hidden");
+      ui.adminCodeInput.value = "";
+      ui.adminCodeInput.focus();
+
+      if (remaining > 0) {
+        ui.adminError.textContent = `Too many attempts. Try again in ${remaining}s.`;
+      } else {
+        ui.adminError.textContent = "";
+      }
+    }
+
     function closeAdminModal(){ ui.adminModal.classList.add("hidden"); }
 
     function escapeHtml(str){
@@ -311,22 +360,39 @@
     }
 
     async function unlockAdmin(){
+      const remaining = getRemainingBlockSeconds();
+      if (remaining > 0) {
+        ui.adminError.textContent = `Too many attempts. Try again in ${remaining}s.`;
+        return;
+      }
+
       const code = ui.adminCodeInput.value.trim();
       if (!code) { ui.adminError.textContent = "Enter the admin code."; return; }
+
       ui.adminError.textContent = "Checking...";
+
       try {
         const res = await fetch("/.netlify/functions/verify-admin", {
           method: "POST",
           headers: { "Content-Type":"application/json" },
           body: JSON.stringify({ code })
         });
+
         if (res.status === 200) {
+          resetUnlockState();
           setStoredCode(code);
           closeAdminModal();
           showAdminPanel();
           ui.adminError.textContent = "";
         } else {
-          ui.adminError.textContent = "Wrong code.";
+          const state = registerFailedUnlock();
+          const seconds = getRemainingBlockSeconds();
+
+          if (seconds > 0) {
+            ui.adminError.textContent = `Wrong code. Try again in ${seconds}s.`;
+          } else {
+            ui.adminError.textContent = `Wrong code. Attempts: ${state.fails}`;
+          }
         }
       } catch (err) {
         ui.adminError.textContent = "Unlock check failed.";
@@ -383,7 +449,7 @@
       const key = e.key.toLowerCase();
       if (key.length === 1) {
         secretBuffer += key;
-        if (secretBuffer.length > 10) secretBuffer = secretBuffer.slice(-10);
+        if (secretBuffer.length > 12) secretBuffer = secretBuffer.slice(-12);
       }
       if (secretBuffer.includes("rusty")) {
         openAdminModal();
