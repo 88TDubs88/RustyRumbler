@@ -189,6 +189,7 @@
     let currentGame = null;
     let secretBuffer = "";
     let lastRenderedEventCount = -1;
+    let adminInputsInitialized = false;
 
     function getStoredCode(){ return sessionStorage.getItem("rustyAdminCode") || ""; }
     function setStoredCode(code){ sessionStorage.setItem("rustyAdminCode", code); sessionStorage.setItem("rustyAdminUnlocked","yes"); }
@@ -247,23 +248,30 @@
 
     function renderGame(game){
       currentGame = game;
+
       ui.entryDisplay.textContent = `${game.entryAmount} Rusty`;
       ui.minPlayersDisplay.textContent = String(game.minPlayers);
       ui.houseCutDisplay.textContent = `${game.houseCut}%`;
       ui.splitDisplay.textContent = game.split.join(" / ");
       ui.entrantCountDisplay.textContent = String(game.players.length);
       ui.prizePoolDisplay.textContent = `${game.prizePool} Rusty`;
+
       if (game.status === "live") setStatus("Rumble live");
       else if (game.status === "complete") setStatus("Rumble complete");
       else if (game.gameCreated) setStatus("Rumble ready");
       else setStatus("Waiting for a new rumble");
+
       renderPlayers(game.players);
       renderFeed(game.visibleFeed);
       renderWinners(game.winners, game.prizes);
-      ui.entryAmountInput.value = game.entryAmount;
-      ui.minPlayersInput.value = game.minPlayers;
-      ui.houseCutInput.value = game.houseCut;
-      ui.prizeSplitInput.value = game.split.join(",");
+
+      if (!adminInputsInitialized) {
+        ui.entryAmountInput.value = game.entryAmount;
+        ui.minPlayersInput.value = game.minPlayers;
+        ui.houseCutInput.value = game.houseCut;
+        ui.prizeSplitInput.value = game.split.join(",");
+        adminInputsInitialized = true;
+      }
     }
 
     async function fetchGame(){
@@ -343,20 +351,30 @@
       try { await adminAction("createGame", readAdminConfig()); }
       catch (err) { alert(err.message || "Could not create game."); }
     });
+
     ui.addPlayerBtn.addEventListener("click", async () => {
       const name = ui.playerNameInput.value.trim();
       if (!name) return alert("Enter a player name.");
       await adminAction("addPlayer", { name });
       ui.playerNameInput.value = "";
     });
+
     ui.removePlayerBtn.addEventListener("click", async () => {
       const name = ui.removePlayerNameInput.value.trim();
       if (!name) return alert("Enter a player name to remove.");
       await adminAction("removePlayer", { name });
       ui.removePlayerNameInput.value = "";
     });
-    ui.startGameBtn.addEventListener("click", async () => { await adminAction("startGame"); });
-    ui.resetGameBtn.addEventListener("click", async () => { await adminAction("resetGame"); });
+
+    ui.startGameBtn.addEventListener("click", async () => {
+      await adminAction("startGame");
+    });
+
+    ui.resetGameBtn.addEventListener("click", async () => {
+      adminInputsInitialized = false;
+      await adminAction("resetGame");
+    });
+
     ui.adminUnlockBtn.addEventListener("click", unlockAdmin);
     ui.adminCancelBtn.addEventListener("click", closeAdminModal);
     ui.adminCodeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") unlockAdmin(); });
